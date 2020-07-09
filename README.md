@@ -1,8 +1,6 @@
 # Ansible
 
-Some sample playbooks for Ansible Course 
 
-http://networknuts.net
 
 ## Usage
 
