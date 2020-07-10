@@ -1,0 +1,1469 @@
+ ###################Implementing Playbooks###################
+ 
+ 
+
+Playbook -1 
+
+
+---
+- name: Install and start Apache HTTPD
+  hosts: web
+  tasks:
+    - name: httpd package is present
+      yum:
+        name: httpd
+        state: present
+
+    - name: correct index.html is present
+      copy:
+        src: files/index.html
+        dest: /var/www/html/index.html
+
+    - name: httpd is started
+      service:
+        name: httpd
+        state: started
+        enabled: true
+		
+		
+Playbook - 2 	
+
+---
+- name: Enable intranet services
+  hosts: servera.lab.example.com
+  become: yes
+  tasks:
+    - name: latest version of httpd and firewalld installed
+      yum:
+        name:
+          - httpd
+          - firewalld
+        state: latest
+
+    - name: test html page is installed
+      copy:
+        content: "Welcome to the example.com intranet!\n"
+        dest: /var/www/html/index.html
+
+    - name: firewalld enabled and running
+      service:
+        name: firewalld
+        enabled: true
+        state: started
+
+    - name: firewalld permits access to httpd service
+      firewalld:
+        service: http
+        permanent: true
+        state: enabled
+        immediate: yes
+
+    - name: httpd enabled and running
+      service:
+        name: httpd
+        enabled: true
+        state: started
+
+- name: Test intranet web server
+  hosts: localhost
+  become: no
+  tasks:
+    - name: connect to intranet web server
+      uri:
+        url: http://servera.lab.example.com
+        return_content: yes
+        status_code: 200
+		
+		
+		
+Playbook -3 
+
+
+---
+- name: Enable intranet services
+  hosts: serverb.lab.example.com
+  become: yes
+  tasks:
+	- name: latest version of all required packages installed
+      yum:
+        name:
+          - firewalld
+          - httpd
+          - mariadb-server
+          - php
+          - php-mysqlnd
+        state: latest	
+		
+	- name: firewalld enabled and running
+      service:
+        name: firewalld
+        enabled: true
+        state: started
+
+    - name: firewalld permits http service
+      firewalld:
+        service: http
+        permanent: true
+        state: enabled
+        immediate: yes
+
+	- name: httpd enabled and running
+      service:
+        name: httpd
+        enabled: true
+        state: started
+
+    - name: mariadb enabled and running
+      service:
+        name: mariadb
+        enabled: true	
+		
+	- name: test php page is installed
+      get_url:
+        url: "http://test.example.com/labs/index.php"
+        dest: /var/www/html/index.php
+        mode: 0644
+
+    - name: connect to internet web server
+      uri:
+        url: http://serverb.lab.example.com
+        status_code: 200 		
+		
+
+
+		
+Managing Variables and Facts
+
+
+###################Managing Variables###################
+
+
+---
+- name: Deploy and start Apache HTTPD service
+  hosts: webserver
+  vars:
+    web_pkg: httpd
+    firewall_pkg: firewalld
+    web_service: httpd
+    firewall_service: firewalld
+    python_pkg: python3-PyMySQL
+    rule: http
+
+  tasks:
+    - name: Required packages are installed and up to date
+      yum:
+        name:
+          - "{{ web_pkg  }}"
+          - "{{ firewall_pkg }}"
+          - "{{ python_pkg }}"
+        state: latest
+
+    - name: The {{ firewall_service }} service is started and enabled
+      service:
+        name: "{{ firewall_service }}"
+        enabled: true
+        state: started
+
+    - name: The {{ web_service }} service is started and enabled
+      service:
+        name: "{{ web_service }}"
+        enabled: true
+        state: started
+
+    - name: Web content is in place
+      copy:
+        content: "Example web content"
+        dest: /var/www/html/index.html
+
+    - name: The firewall port for {{ rule }} is open
+      firewalld:
+        service: "{{ rule }}"
+        permanent: true
+        immediate: true
+        state: enabled
+
+- name: Verify the Apache service
+  hosts: localhost
+  become: false
+  tasks:
+    - name: Ensure the webserver is reachable
+      uri:
+        url: http://servera.lab.example.com
+        status_code: 200
+		
+		
+		
+###################Managing Secrets###################
+
+
+ansible-vault edit secret.yml
+Vault password: redhat
+
+username: ansibleuser1
+pwhash: p@ssw0rd1234
+
+
+---
+- name: create user accounts for all our servers
+  hosts: dev
+  become: True
+  remote_user: devops
+  vars_files:
+    - secret.yml
+  tasks:
+    - name: Creating user from secret.yml
+      user:
+        name: "{{ username }}"
+        password: "{{ pwhash }}"
+
+
+		
+
+ansible-playbook --syntax-check --ask-vault-pass create_users.yml
+Vault password (default): redhat
+
+
+echo 'redhat' > vault-pass
+chmod 0600 vault-pass
+
+ansible-playbook --vault-password-file=vault-pass create_users.yml		
+
+
+
+##################Managing Facts###################################
+
+/home/devops/facts/custom.fact 
+
+[general]
+package = httpd
+service = httpd
+state = started
+enabled = true
+
+
+setup_facts.yml
+
+---
+- name: Install remote facts
+  hosts: webserver
+  vars:
+    remote_dir: /etc/ansible/facts.d
+    facts_file: custom.fact
+  tasks:
+    - name: Create the remote directory
+      file:
+        state: directory
+        recurse: yes
+        path: "{{ remote_dir }}"
+    - name: Install the new facts
+      copy:
+        src: "{{ facts_file }}"
+        dest: "{{ remote_dir }}"
+		
+		
+ansible-playbook setup_facts.yml
+
+
+
+vim playbook.yml
+
+
+---
+- name: Install Apache and starts the service
+  hosts: webserver
+
+  tasks:
+    - name: Install the required package
+      yum:
+        name: "{{ ansible_facts['ansible_local']['custom']['general']['package'] }}"
+        state: latest
+
+    - name: Start the service
+      service:
+        name: "{{ ansible_facts['ansible_local']['custom']['general']['service'] }}"
+        state: "{{ ansible_facts['ansible_local']['custom']['general']['state'] }}"
+        enabled: "{{ ansible_facts['ansible_local']['custom']['general']['enabled'] }}"
+
+
+
+ansible-playbook playbook.yml
+
+
+
+
+
+create the playbook.yml playbook and add the webserver host group as the managed host. Define the following play variables:
+
+Table 4.5. Variables
+
+Variable	Values
+firewall_pkg	firewalld
+firewall_svc	firewalld
+web_pkg	httpd
+web_svc	httpd
+ssl_pkg	mod_ssl
+httpdconf_src	files/httpd.conf
+httpdconf_dest	/etc/httpd/conf/httpd.conf
+htaccess_src	files/.htaccess
+secrets_dir	/etc/httpd/secrets
+secrets_src	files/htpasswd
+secrets_dest	"{{ secrets_dir }}/htpasswd"
+web_root	/var/www/html
+
+
+
+
+playbook.yml
+
+
+---
+- name: install and configure webserver with basic auth
+  hosts: webserver
+  vars:
+    firewall_pkg: firewalld
+    firewall_svc: firewalld
+    web_pkg: httpd
+    web_svc: httpd
+    ssl_pkg: mod_ssl
+    httpdconf_src: files/httpd.conf
+    httpdconf_dest: /etc/httpd/conf/httpd.conf
+    htaccess_src: files/.htaccess
+    secrets_dir: /etc/httpd/secrets
+    secrets_src: files/htpasswd
+    secrets_dest: "{{ secrets_dir }}/htpasswd"
+    web_root: /var/www/html
+  tasks:
+    - name: latest version of necessary packages installed
+      yum:
+        name:
+          - "{{ firewall_pkg }}"
+          - "{{ web_pkg }}"
+          - "{{ ssl_pkg }}"
+        state: latest
+
+    - name: configure web service
+      copy:
+        src: "{{ httpdconf_src }}"
+        dest: "{{ httpdconf_dest }}"
+        owner: root
+        group: root
+        mode: 0644
+
+    - name: secrets directory exists
+      file:
+        path: "{{ secrets_dir }}"
+        state: directory
+        owner: apache
+        group: apache
+        mode: 0500
+
+    - name: htpasswd file exists
+      copy:
+        src: "{{ secrets_src }}"
+        dest: "{{ secrets_dest }}"
+        owner: apache
+        group: apache
+        mode: 0400
+
+    - name: .htaccess file installed in docroot
+      copy:
+        src: "{{ htaccess_src }}"
+        dest: "{{ web_root }}/.htaccess"
+        owner: apache
+        group: apache
+        mode: 0400
+
+    - name: create index.html
+      copy:
+        content: "{{ ansible_facts['fqdn'] }} ({{ ansible_facts['default_ipv4']['address'] }}) has been customized by Ansible.\n"
+        dest: "{{ web_root }}/index.html"
+
+    - name: firewall service enable and started
+      service:
+        name: "{{ firewall_svc }}"
+        state: started
+        enabled: true
+
+    - name: open the port for the web server
+      firewalld:
+        service: https
+        state: enabled
+        immediate: true
+        permanent: true
+
+    - name: web service enabled and started
+      service:
+        name: "{{ web_svc }}"
+        state: started
+        enabled: true
+
+- name: test web server with basic auth
+  hosts: localhost
+  become: no
+  vars:
+    - web_user: guest
+  vars_files:
+    - vars/secret.yml
+  tasks:
+    - name: connect to web server with basic auth
+      uri:
+        url: https://serverb.lab.example.com
+        validate_certs: no
+        force_basic_auth: yes
+        user: "{{ web_user }}"
+        password: "{{ web_pass }}"
+        return_content: yes
+        status_code: 200
+      register: auth_test
+
+    - debug:
+        var: auth_test.content
+		
+		
+		
+Create a subdirectory named vars in the working directory.
+
+ mkdir vars
+Create the encrypted variable file, vars/secret.yml, using Ansible Vault. Set the password for the encrypted file to redhat.
+
+ansible-vault create vars/secret.yml
+New Vault password: redhat
+Confirm New Vault password: redhat
+
+Add the following variable definition to the file.
+web_pass: redhat
+
+		
+		
+######################Writing Loops and Conditional Tasks###################################	
+
+ cat inventory
+[database_dev]
+servera.lab.example.com
+
+[database_prod]
+serverb.lab.example.com
+
+
+
+
+---
+- name: MariaDB server is running
+  hosts: database_dev
+  vars:
+    mariadb_packages:
+      - mariadb-server
+      - python3-PyMySQL
+
+  tasks:
+    - name: MariaDB packages are installed
+      yum:
+        name: "{{ item }}"
+        state: present
+      loop: "{{ mariadb_packages }}"
+	  when: ansible_distribution == "RedHat"
+		
+		
+    - name: Start MariaDB service
+      service:
+        name: mariadb
+        state: started
+        enabled: true
+
+		
+		
+############################# Implementing Handlers#######################################
+
+---
+- name: MariaDB server is installed
+  hosts: databases
+  vars:
+    db_packages:
+      - mariadb-server
+      - python3-PyMySQL
+    db_service: mariadb
+    resources_url: http://materials.example.com/labs/control-handlers
+    config_file_url: "{{ resources_url }}/my.cnf.standard"
+    config_file_dst: /etc/my.cnf
+  tasks:
+    - name: "{{ db_packages }} packages are installed"
+      yum:
+        name: "{{ db_packages }}"
+        state: present
+      notify:
+        - set db password
+
+    - name: Make sure the database service is running
+      service:
+        name: "{{ db_service }}"
+        state: started
+        enabled: true
+
+    - name: The {{ config_file_dst }} file has been installed
+      get_url:
+        url: "{{ config_file_url }}"
+        dest: "{{ config_file_dst }}"
+        owner: mysql
+        group: mysql
+        force: yes
+      notify:
+        - restart db service
+
+  handlers:
+    - name: restart db service
+      service:
+        name: "{{ db_service }}"
+        state: restarted
+
+    - name: set db password
+      mysql_user:
+        name: root
+
+############################Handling Task Failure##########################
+---
+- name: Task Failure Exercise
+  hosts: databases
+  vars:
+    web_package: http
+    db_package: mariadb-server
+    db_service: mariadb
+	
+  tasks:
+    - name: Install {{ web_package }} package
+      yum:
+        name: "{{ web_package }}"
+        state: present
+		ignore_errors: yes
+		
+
+    - name: Install {{ db_package }} package
+      yum:
+        name: "{{ db_package }}"
+        state: present
+
+
+		
+step, you will set up a block keyword so you can experiment with how they work.
+
+
+---
+- name: Task Failure Exercise
+  hosts: databases
+  vars:
+    web_package: http
+    db_package: mariadb-server
+    db_service: mariadb
+	
+  tasks:
+    - name: Attempt to set up a webserver
+      block:
+        - name: Install {{ web_package }} package
+          yum:
+            name: "{{ web_package }}"
+            state: present
+      rescue:
+        - name: Install {{ db_package }} package
+          yum:
+            name: "{{ db_package }}"
+            state: present
+      always:
+        - name: Start {{ db_service }} service
+          service:
+            name: "{{ db_service }}"
+            state: started
+			
+block. The first task uses the command module to run the date command and register the result in the command_result variable. The second task uses the debug module to print the standard output of the first task's command.
+
+  tasks:
+    - name: Check local time
+      command: date
+      register: command_result
+
+    - name: Print local time
+      debug:
+        var: command_result.stdout
+
+
+
+Edit the Install {{ web_package }} package task so that it reports as having failed when web_package has the value httpd. Because this is the case, the task will report failure when you run the play.
+
+Be careful with your indentation to make sure the keyword is correctly set on the task.
+
+    - block:
+        - name: Install {{ web_package }} package
+          yum:
+            name: "{{ web_package }}"
+            state: present
+          failed_when: web_package == "httpd"
+
+
+####################################################################################
+Implementing Task Control
+
+
+---
+- name: Playbook Control Lab
+  hosts: webservers
+  vars_files: vars.yml
+  tasks:
+    #Fail Fast Message
+    - name: Show Failed System Requirements Message
+      fail:
+        msg: "The {{ inventory_hostname }} did not meet minimum reqs."
+      when: >
+        ansible_memtotal_mb < min_ram_mb or
+        ansible_distribution != "RedHat"
+
+    #Install all Packages
+    - name: Ensure required packages are present
+      yum:
+        name: "{{ packages }}"
+        state: latest
+
+    #Enable and start services
+    - name: Ensure services are started and enabled
+      service:
+        name: "{{ item }}"
+        state: started
+        enabled: yes
+      loop: "{{ services }}"
+
+    #Block of config tasks
+    - name: Setting up the SSL cert directory and config files 
+      block:
+        - name: Create SSL cert directory
+          file:
+            path: "{{ ssl_cert_dir }}"
+            state: directory
+
+        - name: Copy Config Files
+          copy:
+            src: "{{ item.src }}"
+            dest: "{{ item.dest }}"
+          loop: "{{ web_config_files }}"
+          notify: restart web service
+
+      rescue:
+        - name: Configuration Error Message
+          debug:
+            msg: >
+              One or more of the configuration
+              changes failed, but the web service
+              is still active.
+
+    #Configure the firewall
+    - name: ensure web server ports are open
+      firewalld:
+        service: "{{ item }}"
+        immediate: true
+        permanent: true
+        state: enabled
+      loop:
+        - http
+        - https
+
+  #Add handlers
+  handlers:
+    - name: restart web service
+      service:
+        name: "{{ web_service }}"
+        state: restarted
+		
+####################################################################################
+
+###################Modifying and Copying Files to Hosts######################################
+
+
+secure_log_backups.yml 		
+
+secure_log_backups.yml playbook with initial content:
+
+---
+- name: Use the fetch module to retrieve secure log files
+  hosts: all
+  remote_user: root
+  
+  tasks:
+    - name: Fetch the /var/log/secure log file from managed hosts
+      fetch:
+        src: /var/log/secure
+        dest: secure-backups
+        flat: no
+		
+		
+ansible-playbook secure_log_backups.yml
+
+
+[student@workstation file-manage]$ tree -F secure-backups
+secure-backups
+├── servera.lab.example.com/
+│   └── var/
+│       └── log/
+│           └── secure
+└── serverb.lab.example.com/
+    └── var/
+        └── log/
+            └── secure
+
+
+Add the following initial content to the copy_file.yml playbook:
+
+---
+- name: Using the copy module
+  hosts: all
+  remote_user: root
+Add a task to use the copy module to copy the /home/student/file-manage/files/users.txt file to all managed hosts. Use the copy module to set the following parameters for the users.txt file:
+
+
+Parameter	Values
+src	files/users.txt
+dest	/home/devops/users.txt
+owner	devops
+group	devops
+mode	u+rw,g-wx,o-rwx
+setype	samba_share_t
+
+  tasks:
+    - name: Copy a file to managed hosts and set attributes
+      copy:
+        src: files/users.txt
+        dest: /home/devops/users.txt
+        owner: devops
+        group: devops
+        mode: u+rw,g-wx,o-rwx
+        setype: samba_share_t
+		
+Use the ansible-playbook --syntax-check copy_file.yml command to verify the syntax of the copy_file.yml playbook.
+
+ansible-playbook --syntax-check copy_file.yml
+
+playbook: copy_file.yml
+Run the playbook:
+
+ ansible-playbook copy_file.yml
+
+
+Create the selinux_defaults.yml playbook:
+
+---
+- name: Using the file module to ensure SELinux file context
+  hosts: all
+  remote_user: root
+  tasks:
+    - name:  SELinux file context is set to defaults
+      file:
+        path: /home/devops/users.txt
+        seuser: _default
+        serole: _default
+        setype: _default
+        selevel: _default
+		
+ansible-playbook selinux_defaults.yml
+
+
+
+
+
+Create the add_line.yml playbook:
+
+---
+- name: Add text to an existing file
+  hosts: all
+  remote_user: devops
+  tasks:
+    - name: Add a single line of text to a file
+      lineinfile:
+        path: /home/devops/users.txt
+        line: This line was added by the lineinfile module.
+        state: present
+Use ansible-playbook --syntax-check add_line.yml command to verify the syntax of the add_line.yml playbook.
+
+ ansible-playbook --syntax-check add_line.yml
+
+		
+
+
+
+
+Create a playbook called add_block.yml in the current working directory. Configure the playbook to use the blockinfile module to append the following block of text to the /home/devops/users.txt file on all managed hosts.
+
+This block of text consists of two lines.
+They have been added by the blockinfile module.
+Create the add_block.yml playbook:
+
+---
+- name: Add block of text to a file
+  hosts: all
+  remote_user: devops
+  tasks:
+    - name: Add a block of text to an existing file
+      blockinfile:
+        path: /home/devops/users.txt
+        block: |
+          This block of text consists of two lines.
+          They have been added by the blockinfile module.
+        state: present
+Use the ansible-playbook --syntax-check add_block.yml command to verify the syntax of the add_block.yml playbook.
+
+ ansible-playbook --syntax-check add_block.yml
+
+playbook: add_block.yml
+Run the playbook:
+
+ansible-playbook add_block.yml
+
+
+
+Create a playbook called remove_file.yml in the current working directory. Configure the playbook to use the file module to remove 
+the /home/devops/users.txt file from all managed hosts.
+
+Create the remove_file.yml playbook:
+
+---
+- name: Use the file module to remove a file
+  hosts: all
+  remote_user: devops
+  tasks:
+    - name: Remove a file from managed hosts
+      file:
+        path: /home/devops/users.txt
+        state: absent
+		
+		
+Use the ansible-playbook --syntax-check remove_file.yml command to verify the syntax of the remove_file.yml playbook.
+
+[student@workstation file-manage]$ ansible-playbook --syntax-check remove_file.yml
+
+playbook: remove_file.yml
+Run the playbook:
+
+ansible-playbook remove_file.yml		
+
+
+############################### Deploying Custom Files with Jinja2 Templates####################################
+
+
+On workstation, navigate to the /home/student/file-template working directory. 
+
+Create the inventory file in the current working directory. 
+This file configures two groups: webservers and workstations. 
+Include the servera.lab.example.com system in the webservers group, and the workstation.lab.example.com system in the workstations group.
+
+[webservers]
+servera.lab.example.com
+
+[workstations]
+workstation.lab.example.com	
+
+
+
+
+Create a template for the Message of the Day and include it in the motd.j2 file in the current working directory. Include the following variables and facts in the template:
+
+ansible_facts['fqdn'], to insert the FQDN of the managed host.
+
+ansible_facts['distribution'] and ansible_facts['distribution_version'], to provide distribution information.
+
+system_owner, for the system owner's email. This variable needs to be defined with an appropriate value in the vars section of the playbook template.
+
+This is the system {{ ansible_facts['fqdn'] }}.
+This is a {{ ansible_facts['distribution'] }} version {{ ansible_facts['distribution_version'] }} system.
+Only use this system with permission.
+You can request access from {{ system_owner }}.
+
+
+
+Create a playbook file named motd.yml in the current working directory. Define the system_owner variable in the vars section, and include a task for the template module that maps the motd.j2 Jinja2 template to the remote file /etc/motd on the managed hosts. Set the owner and group to root, and the mode to 0644.
+
+---
+- name: configure SOE
+  hosts: all
+  remote_user: devops
+  become: true
+  vars:
+    - system_owner: clyde@example.com
+  tasks:
+    - name: configure /etc/motd
+      template:
+        src: motd.j2
+        dest: /etc/motd
+        owner: root
+        group: root
+        mode: 0644
+Before running the playbook, use the ansible-playbook --syntax-check command to verify the syntax. If it reports any errors, correct them before moving to the next step. You should see output similar to the following:
+
+ ansible-playbook --syntax-check motd.yml
+
+playbook: motd.yml
+Run the motd.yml playbook.
+
+ ansible-playbook motd.yml
+ 
+ 
+ 
+##########################################################################
+##############################Deploying Files to Managed Hosts######################################
+You should be able to:
+
+Build a template file.
+
+Use the template file in a playbook.
+
+Log in to workstation as student using student as the password.
+
+On workstation, run the lab file-review start command. This ensures that Ansible is installed on workstation, creates the /home/student/file-review directory, and downloads the ansible.cfg file into that directory. 
+It also downloads the motd.yml, motd.j2, issue, and inventory files into the /home/student/file-review/files directory. 
+
+
+
+
+Create a template for the Message of the Day, named motd.j2, in the current directory. 
+When the devops user logs in to serverb.lab.example.com, a message should display that shows the system's total memory and processor count. 
+
+Use the ansible_facts['memtotal_mb'] and ansible_facts['processor_count'] facts to provide the system resource information for the message.
+
+motd.j2
+
+*------------------------------- PRIVATE SYSTEM -----------------------------*
+*   Access to this computer system is restricted to authorised users only.   *
+*                                                                            *
+*      Customer information is confidential and must not be disclosed.       *
+*----------------------------------------------------------------------------*
+System total memory: {{ ansible_facts['memtotal_mb'] }} MiB.
+System processor count: {{ ansible_facts['processor_count'] }}
+
+
+
+
+
+Create a new playbook file called motd.yml in the current directory. 
+Using the template module, configure the motd.j2 
+Jinja2 template file previously created to map to the file /etc/motd on the managed hosts. 
+This file has the root user as owner and group, and its permissions are 0644. Using the stat and debug modules,
+ create tasks to verify that /etc/motd exists on the managed hosts and displays the file information for /etc/motd. 
+ Use the copy module to place files/issue into the /etc/ directory on the managed host, 
+ use the same ownership and permissions as /etc/motd. 
+ Use the file module to ensure that /etc/issue.net is a symbolic link to /etc/issue on the managed host.
+ Configure the playbook so that it uses the devops user, and sets the become parameter to true.
+
+---
+- name: Configure system
+  hosts: all
+  remote_user: devops
+  become: true
+  tasks:
+    - name: Configure a custom /etc/motd
+      template:
+        src: motd.j2
+        dest: /etc/motd
+        owner: root
+        group: root
+        mode: 0644
+
+    - name: Check file exists
+      stat:
+        path: /etc/motd
+      register: motd
+
+    - name: Display stat results
+      debug:
+        var: motd
+
+    - name: Copy custom /etc/issue file
+      copy:
+        src: files/issue
+        dest: /etc/issue
+        owner: root
+        group: root
+        mode: 0644
+
+    - name: Ensure /etc/issue.net is a symlink to /etc/issue
+      file:
+        src: /etc/issue
+        dest: /etc/issue.net
+        state: link
+        owner: root
+        group: root
+        force: yes
+	
+##################################################################
+
+##############Configuring Parallelism#################################
+
+
+Change to the /home/student/projects-parallelism directory. Examine the contents of the project directory to become familiar with the project files.
+
+Examine the contents of the ansible.cfg file. Note that the inventory file is set to inventory. Note also that the forks parameter is set to 4.
+
+[defaults]
+inventory=inventory
+remote_user=devops
+forks=4
+...output omitted...
+Examine the contents of the inventory file. Note that it contains a host group, webservers, which contains four hosts.
+
+[webservers]
+servera.lab.example.com
+serverb.lab.example.com
+serverc.lab.example.com
+serverd.lab.example.com
+Examine the contents of the playbook.yml file. The playbook executes on the webservers host group, ensures that the latest httpd package is installed, and that the httpd service is enabled and started.
+
+---
+    - name: Update web server
+      hosts: webservers
+
+      tasks:
+        - name: Lastest httpd package installed
+            yum:
+              name: httpd
+              state: latest
+            notify:
+              - Restart httpd
+
+      handlers:
+        - name: Restart httpd
+          service:
+            name: httpd
+            enabled: yes
+            state: restarted
+Finally, examine the contents of the remove_apache.yml file. The playbook executes on the webservers host group, ensures that the httpd service is disabled and stopped, and then ensures that the httpd package is not installed.
+
+---
+- hosts: webservers
+  tasks:
+    - name: Disable httpd service
+      service:
+        name: httpd
+        enabled: no
+        state: stopped
+    - name: Remove httpd package
+      yum:
+        name: httpd
+        state: absent
+Execute the playbook.yml playbook, using the time command to determine how long it takes for the playbook to run. Watch the playbook as it runs. Note how Ansible performs each task on all four hosts at the same time.
+
+ time ansible-playbook playbook.yml	
+	
+	
+Execute the remove_apache.yml playbook to stop and disable the httpd service and to remove the httpd package.
+
+ ansible-playbook remove_apache.yml
+Change the value of the forks parameter to 1 in ansible.cfg.
+
+[defaults]
+inventory=inventory
+remote_user=devops
+forks=1
+...output omitted...
+Re-execute the playbook.yml playbook, using the time command to determine how long it takes for the playbook to run. Watch the playbook as it runs. Note that this time Ansible performs each task on one host at a time. Also note how decreasing the number of forks caused the playbook execution to take longer than before.
+
+ time ansible-playbook playbook.yml
+
+
+
+
+xecute the remove_apache.yml playbook to stop and disable the httpd service and to remove the httpd package.
+
+ ansible-playbook remove_apache.yml
+Set the value of the forks parameter to 2 in ansible.cfg.
+
+[defaults]
+inventory=inventory
+remote_user=devops
+forks=2
+...output omitted...
+Add the following serial parameter to the play in the playbook.yml playbook so that the play only executes on two hosts at a time. The beginning of the playbook should display as follows:
+
+---
+- name: Update web server
+  hosts: webservers
+  serial: 2
+Re-execute the playbook.yml playbook. Watch the playbook as it runs. Note how Ansible executes the entire play on just two hosts before re-executing the play on the two remaining hosts.
+
+ansible-playbook playbook.yml	
+
+
+
+Execute the remove_apache.yml playbook to stop and disable the httpd service and to remove the httpd package.
+
+ansible-playbook remove_apache.yml
+Set the value of the forks parameter back to 4 in ansible.cfg.
+
+[defaults]
+inventory=inventory
+remote_user=devops
+forks=4
+...output omitted...
+Set the serial parameter in the playbook.yml playbook to 3. The beginning of the playbook should display as follows:
+
+---
+- name: Update web server
+  hosts: webservers
+  serial: 3
+  
+  
+  
+  
+#########################################################################################  
+############################Including and Importing Files###############################
+
+Review the contents of the three files in the tasks subdirectory.
+
+Review the contents of the tasks/environment.yml file. The file contains tasks for package installation and service administration.
+
+ cat tasks/environment.yml
+---
+  - name: Install the {{ package }} package
+    yum:
+      name: "{{ package }}"
+      state: latest
+  - name: Start the {{ service }} service
+    service:
+      name: "{{ service }}"
+      enabled: true
+      state: started
+	  
+	  
+Review the contents of the tasks/firewall.yml file. The file contains tasks for installation, administration, and configuration of firewall software.
+
+ cat tasks/firewall.yml
+---
+  - name: Install the firewall
+    yum:
+      name: "{{ firewall_pkg }}"
+      state: latest
+
+  - name: Start the firewall
+    service:
+      name: "{{ firewall_svc }}"
+      enabled: true
+      state: started
+
+  - name: Open the port for {{ rule }}
+    firewalld:
+      service: "{{ item }}"
+      immediate: true
+      permanent: true
+      state: enabled
+    loop: "{{ rule }}"
+	
+	
+	
+Review the contents of the tasks/placeholder.yml file. This file contains a task for populating a placeholder web content file.
+
+ cat tasks/placeholder.yml
+---
+  - name: Create placeholder file
+    copy:
+      content: "{{ ansible_facts['fqdn'] }} has been customized using Ansible.\n"
+      dest: "{{ file }}"
+	  
+	  
+Review the contents of the test.yml file in the plays subdirectory. This file contains a play which tests connections to a web service.
+
+---
+- name: Test web service
+  hosts: localhost
+  become: no
+  tasks:
+    - name: connect to internet web server
+      uri:
+        url: "{{ url }}"
+        status_code: 200
+		
+Create a playbook named playbook.yml. 
+Define the first play with the name Configure web server. The play should execute against the servera.lab.example.com managed host defined in the inventory file. The beginning of the file should look like the following:
+
+---
+- name: Configure web server
+  hosts: servera.lab.example.com
+In the playbook.yml playbook, define the tasks section with three sets of tasks. Include the first set of tasks from the tasks/environment.yml tasks file. Define the necessary variables to install the httpd package and to enable and start the httpd service. Import the second set of tasks from the tasks/firewall.yml tasks file. Define the necessary variables to install the firewalld package to enable and start the firewalld service, and to allow http connections. Import the third task set from the tasks/placeholder.yml task file.
+
+Create the tasks section in the first play by adding the following entry to the playbook.yml playbook.
+
+  tasks:
+Include the first set of tasks from tasks/environment.yml using the include_tasks feature. Set the package and service variables to httpd. Set the svc_state variable to started.
+
+    - name: Include the environment task file and set the variables
+      include_tasks: tasks/environment.yml
+      vars:
+        package: httpd
+        service: httpd
+      when: ansible_facts['os_family'] == 'RedHat'
+Import the second set of tasks from tasks/firewall.yml using the import_tasks feature. Set the firewall_pkg and firewall_svc variables to firewalld. Set the rule variable to http.
+
+    - name: Import the firewall task file and set the variables
+      import_tasks: tasks/firewall.yml
+      vars:
+        firewall_pkg: firewalld
+        firewall_svc: firewalld
+        rule:
+          - http
+          - https
+Import the last task set from tasks/placeholder.yml using the import_tasks feature. Set the file variable to /var/www/html/index.html.
+
+    - name: Import the placeholder task file and set the variable
+      import_tasks: tasks/placeholder.yml
+      vars:
+        file: /var/www/html/index.html
+Add a second and final play to the playbook.yml playbook using the contents of the plays/test.yml playbook.
+
+Add a second play to the playbook.yml playbook to validate the web server installation. Import the play from plays/test.yml. Set the url variable to http://servera.lab.example.com.
+
+- name: Import test play file and set the variable
+  import_playbook: plays/test.yml
+  vars:
+    url: 'http://servera.lab.example.com'
+Your playbook should look like the following after the changes are complete:
+
+---
+- name: Configure web server
+  hosts: servera.lab.example.com
+
+  tasks:
+    - name: Include the environment task file and set the variables
+      include_tasks: tasks/environment.yml
+      vars:
+        package: httpd
+        service: httpd
+      when: ansible_facts['os_family'] == 'RedHat'
+
+    - name: Import the firewall task file and set the variables
+      import_tasks: tasks/firewall.yml
+      vars:
+        firewall_pkg: firewalld
+        firewall_svc: firewalld
+        rule:
+          - http
+          - https
+
+    - name: Import the placeholder task file and set the variable
+      import_tasks: tasks/placeholder.yml
+      vars:
+        file: /var/www/html/index.html
+
+- name: Import test play file and set the variable
+  import_playbook: plays/test.yml
+  vars:
+    url: 'http://servera.lab.example.com'
+	
+	
+	
+Save the changes to the playbook.yml playbook.
+
+Before running the playbook, verify its syntax is correct by running ansible-playbook --syntax-check. 
+If errors are reported, correct them before moving to the next step.
+
+ ansible-playbook playbook.yml --syntax-check
+
+playbook: playbook.yml
+Execute the playbook.yml playbook. The output of the playbook shows the import of the task and play files.
+
+ ansible-playbook playbook.yml
+ 
+ 
+ 
+#####################################################################################
+
+############Lab: Managing Large Projects#########################################
+
+Instructions
+
+You have inherited a playbook from the previous administrator. The playbook is used to configure a web service on servera.lab.example.com, serverb.lab.example.com, serverc.lab.example.com, and serverd.lab.example.com. The playbook also configures the firewall on the four managed hosts so that web traffic is allowed.
+
+Log in to workstation as student using student as the password.
+
+On workstation, run the lab projects-review start command. This setup script ensures that the managed hosts are reachable on the network. It also ensures that the correct Ansible configuration file, inventory file, and playbook are installed on the control node in the /home/student/projects-review directory.
+
+ lab projects-review start
+Make the following changes to the playbook.yml playbook file so that it is easier to manage, and tune it so that future executions use rolling updates to prevent all four web servers from being unavailable at the same time.
+
+Simplify the list of managed hosts in the playbook by using a wildcard host pattern. Use the inventory/inventory.py dynamic inventory script to verify the wildcard host pattern.
+
+Change directory to the /home/student/projects-review working directory. Review the ansible.cfg configuration file to determine the location of the inventory file. The inventory is defined as the inventory subdirectory and this subdirectory contains an inventory.py dynamic inventory script.
+
+ cd ~/projects-review
+ cat ansible.cfg
+[defaults]
+inventory = inventory
+...output omitted...
+ ll
+total 16
+-rw-rw-r--. 1 student student   33 Dec 19 00:48 ansible.cfg
+drwxrwxr-x. 2 student student 4096 Dec 18 22:35 files
+drwxrwxr-x. 2 student student 4096 Dec 19 01:18 inventory
+-rw-rw-r--. 1 student student  959 Dec 18 23:48 playbook.yml
+ ll inventory/
+total 4
+-rwxrwxr-x. 1 student student 612 Dec 19 01:18 inventory.py
+Make the inventory/inventory.py dynamic inventory script executable, and then execute the dynamic inventory script with the --list option to display the full list of hosts in the inventory.
+
+ chmod 755 inventory/inventory.py
+ inventory/inventory.py --list
+{"all": {"hosts": ["servera.lab.example.com", "serverb.lab.example.com", "serverc.lab.example.com", "serverd.lab.example.com", "workstation.lab.example.com"], "vars": { }}}
+Verify that the host pattern server*.lab.example.com correctly identifies the four managed hosts that are targeted by the playbook.yml playbook.
+
+ ansible server*.lab.example.com \
+> --list-hosts
+  hosts (4):
+    serverb.lab.example.com
+    serverd.lab.example.com
+    servera.lab.example.com
+    serverc.lab.example.com
+Replace the host list in the playbook.yml playbook with the server*.lab.example.com host pattern.
+
+---
+- name: Install and configure web service
+  hosts: server*.lab.example.com
+...output omitted...
+Restructure the playbook so that the first three tasks in the playbook are kept in an external task file located at tasks/web_tasks.yml. Use the import_tasks feature to incorporate this task file into the playbook.
+
+Create the tasks subdirectory.
+
+ mkdir tasks
+Place the contents of the first three tasks in the playbook.yml playbook into the tasks/web_tasks.yml file. The task file should contain the following content:
+
+---
+- name: Install httpd
+  yum:
+    name: httpd
+    state: latest
+
+- name: Enable and start httpd
+  service:
+    name: httpd
+    enabled: true
+    state: started
+
+- name: Tuning configuration installed
+  copy:
+    src: files/tune.conf
+    dest: /etc/httpd/conf.d/tune.conf
+    owner: root
+    group: root
+    mode: 0644
+  notify:
+    - restart httpd
+	
+Remove the first three tasks from the playbook.yml playbook and put the following lines in their place to import the tasks/web_tasks.yml task file.
+
+    - name: Import the web_tasks.yml task file
+      import_tasks: tasks/web_tasks.yml
+	  
+Restructure the playbook so that the fourth, fifth, and sixth tasks in the playbook are kept in an external task file located at tasks/firewall_tasks.yml. Use the import_tasks feature to incorporate this task file into the playbook.
+
+Place the contents of the three remaining tasks in the playbook.yml playbook into the tasks/firewall_tasks.yml file. The task file should contain the following content.
+
+---
+- name: Install firewalld
+  yum:
+    name: firewalld
+    state: latest
+
+- name: Enable and start the firewall
+  service:
+    name: firewalld
+    enabled: true
+    state: started
+
+- name: Open the port for http
+  firewalld:
+    service: http
+    immediate: true
+    permanent: true
+    state: enabled
+	
+Remove the remaining three tasks from the playbook.yml playbook and put the following lines in their place to import the tasks/firewall_tasks.yml task file.
+
+    - name: Import the firewall_tasks.yml task file
+      import_tasks: tasks/firewall_tasks.yml
+There is some duplication of tasks between the tasks/web_tasks.yml and tasks/firewall_tasks.yml files. 
+Move the tasks that install packages and enable services into a new file named tasks/install_and_enable.yml and update them to use variables.
+ Replace the original tasks with import_tasks statements, passing in appropriate variable values.
+
+Copy the yum and service tasks from tasks/web_tasks.yml into a new file named tasks/install_and_enable.yml.
+
+---
+- name: Install httpd
+  yum:
+    name: httpd
+    state: latest
+
+- name: Enable and start httpd
+  service:
+    name: httpd
+    enabled: true
+    state: started
+Replace the package and service names in tasks/install_and_enable.yml with the variables package and service.
+
+---
+- name: Install {{ package }}
+  yum:
+    name: "{{ package }}"
+    state: latest
+
+- name: Enable and start {{ service }}
+  service:
+    name: "{{ service }}"
+    enabled: true
+    state: started
+Replace the yum and service tasks in tasks/web_tasks.yml and tasks/firewall_tasks.yml with import_tasks statements.
+
+---
+- name: Install and start httpd
+  import_tasks: install_and_enable.yml
+  vars:
+    package: httpd
+    service: httpd
+---
+- name: Install and start firewalld
+  import_tasks: install_and_enable.yml
+  vars:
+    package: firewalld
+    service: firewalld
+Because the handler for restarting the httpd service could be triggered if there are future changes to the files/tune.conf file, implement the rolling update feature in the playbook.yml playbook and set the rolling update batch size to two hosts.
+
+Add the serial parameter to the playbook.yml playbook.
+
+---
+- name: Install and configure web service
+  hosts: server*.lab.example.com
+  serial: 2
+...output omitted...
+Verify the changes to the playbook.yml playbook were correctly made and then execute the playbook.
+
+Verify that the playbook.yml playbook contains the following contents.
+
+---
+- name: Install and configure web service
+  hosts: server*.lab.example.com
+  serial: 2
+
+  tasks:
+    - name: Import the web_tasks.yml task file
+      import_tasks: tasks/web_tasks.yml
+
+    - name: Import the firewall_tasks.yml task file
+      import_tasks: tasks/firewall_tasks.yml
+
+  handlers:
+    - name: restart httpd
+      service:
+        name: httpd
+        state: restarted
+Execute the playbook with ansible-playbook --syntax-check to verify the playbook contains no syntax errors. If errors are present, correct them before preceding.
+
+ ansible-playbook playbook.yml \
+> --syntax-check
+playbook: playbook.yml
+Execute the playbook. The playbook should execute against the host as a rolling update with a batch size of two managed hosts.
+
+ ansible-playbook playbook.yml
+
+
+
+#############################################################################################
+###########################Reusing Content with System Roles#################################
+
+
