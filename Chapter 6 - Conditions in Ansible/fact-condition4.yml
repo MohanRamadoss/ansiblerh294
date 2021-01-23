@@ -1,0 +1,7 @@
+-
+    name: Execute a script on all web server nodes
+    hosts: all
+    tasks:
+      - name: restart httpd
+        service: name=httpd state=restarted
+        when: ansible_host == "192.168.2.106"
