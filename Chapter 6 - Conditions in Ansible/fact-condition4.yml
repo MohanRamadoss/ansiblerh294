@@ -1,6 +1,7 @@
--
-    name: Execute a script on all web server nodes
-    hosts: all
+  
+---
+- name: install apache is node is a RedHat, CentOS or Fedora machine
+  hosts: all
     tasks:
       - name: restart httpd
         service: name=httpd state=restarted
