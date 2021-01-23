@@ -1,13 +1,10 @@
 ---
-- name: install multiple packages
-  hosts: all
-  tasks:
-        - name: install apache, firewalld, openssh and cups package
-          yum:
-                name:
-                  - httpd
-                  - firewalld
-                  - openssh
-                  - cups
-                state: present
-# The yum or dnf module do not require a loop.
+ - hosts: all
+   become: True
+   tasks:
+     - name: install packages
+       yum: name={{ item }} state=present
+       with_items:
+          - git
+          - docker
+          - curl
