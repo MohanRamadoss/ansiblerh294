@@ -1,0 +1,443 @@
+- hosts: all
+  become: yes
+  tasks:
+
+  - name: Creating 1 user for all team
+    user:
+      name: ansible
+      append: yes
+      state: present
+      createhome: yes
+      shell: /bin/bash
+
+  - name: Allow 'ansible' to have passwordless sudo
+    lineinfile:
+      dest: /etc/sudoers
+      line: 'ansible ALL=(ALL) NOPASSWD: ALL'
+      validate: 'visudo -cf %s'
+
+  - name: Set authorized key for user kubeadmin copying it from current user
+    authorized_key:
+     user: ansible
+     state: present
+     key: "{{ lookup('file', lookup('env','HOME') + '/.ssh/id_rsa.pub') }}"
+
+  - name: Adding "ansible" group for next hardening
+    group:
+      name: ansible
+      state: present
+
+  - name: Disabling Selinux
+    selinux:
+      state: disabled
+
+  - name: Install open-vm-tools
+    yum:
+     name: open-vm-tools
+     state: latest
+
+  - name: Yum update after os intallation
+    yum:
+     name: '*'
+     state: latest
+     update_cache: yes
+  
+  - name: Editing fstab
+    lineinfile:
+      path: /etc/fstab
+      regexp: '^(\S+\s+/tmp\s+\S+\s+defaults)'
+      line: '\1,nodev,nosuid,noexec 1 2'
+      backrefs: yes
+
+  - name: Editing fstab 
+    lineinfile:
+      path: /etc/fstab
+      line: 'tmpfs /dev/shm tmpfs defaults,nodev,nosuid,noexec 0 0'
+      state: present
+  
+  - name: Editing fstab
+    lineinfile:
+      path: /etc/fstab
+      regexp: '^(\S+\s+/var/tmp\s+\S+\s+defaults)'
+      line: '\1,nodev,nosuid,noexec 1 2'
+      backrefs: yes
+
+
+  - name: Editing fstab
+    lineinfile:
+      path: /etc/fstab
+      regexp: '^(\S+\s+/home\s+\S+\s+defaults)'
+      line: '\1,nodev 1 2'
+      backrefs: yes
+
+
+  - name: Rebooting the machine
+    reboot:
+     msg: " rebooting after installing os and update"
+
+  - name: Add CIS.conf file
+    file:
+      path: /etc/modprobe.d/CIS.conf
+      state: touch
+
+  - name: Add rules to /etc/modprobe.d/CIS.conf
+    lineinfile:
+     path: /etc/modprobe.d/CIS.conf
+     line: "{{ item }}"
+    with_items:
+    - install cramfs /bin/true
+    - install freevxfs /bin/true
+    - install jffs2 /bin/true
+    - install hfs /bin/true
+    - install hfsplus /bin/true
+    - install squashfs /bin/true
+    - install vfat /bin/true
+    - install usb-storage /bin/true
+    - install udf /bin/true
+    - install dccp /bin/true
+    - install sctp /bin/true
+    - install rds /bin/true
+    - install tipc /bin/true
+
+  - name: Add blacklist.conf file
+    file:
+      path: /etc/modprobe.d/blacklist.conf
+      state: touch
+
+  - name: Add rules to /etc/modprobe.d/blacklist.conf
+    lineinfile:
+     path: /etc/modprobe.d/blacklist.conf
+     line: "{{ item }}"
+    with_items:
+    - blacklist dccp
+    - blacklist dccp_diag
+    - blacklist dccp_ipv4
+    - blacklist dccp_ipv6
+
+  - name: 1.6.1 Ensure core dumps are restricted
+    lineinfile:
+     path: /etc/security/limits.conf
+     line: '* hard core 0'
+     state: present
+
+  - name: Changing /etc/ssh/sshd_config
+    lineinfile:
+     path: /etc/ssh/sshd_config
+     regexp: '#Banner none'
+     line: 'Banner /etc/issue.net'
+     state: present
+
+  - name: Add rules to /etc/issue.net
+    lineinfile:
+     path: /etc/issue.net
+     line: "{{ item }}"
+    with_items:
+    -  ========================================================================
+    -      Unauthorized access to this system is forbidden and will be
+    -  prosecuted by law. By accessing this system, you agree that your actions
+    -         may be monitored if unauthorized usage is suspected 
+    - CIS hardening provided by  Nijat Hasanli , Ziyaddin Mammadov
+
+  - name: Add rules to /etc/motd
+    lineinfile:
+     path: /etc/motd
+     line: "{{ item }}"
+    with_items:
+    -  ========================================================================
+    -  Can only be used by authorized and adequate people!
+    -  Everyone else, please leave the server!
+    -  KARABAKH IS AZERBAIJAN!!!
+
+  - name: Disable unused services
+    service:
+      name: "{{ item }}"
+      state: stopped
+      enabled: false
+    loop:
+      - rsyslog
+      - rsyncd
+      - avahi-daemon
+      - snmpd
+      - httpd
+      - named
+      - cups
+      - nfs
+      - sldap
+      - dhcpd
+      - nfslock
+      - rpcgssd
+      - rpcbind
+      - rpcidmapd
+      - rpcsvcgssd
+    ignore_errors: yes
+
+  - name: Add /etc/sysctl.d/99-CIS.conf file
+    file:
+      path: /etc/sysctl.d/99-CIS.conf
+      state: touch
+
+  - name: Copying standart sysctl.conf
+    command: mv /etc/sysctl.conf /etc/sysctl.conf.bak
+
+  - name: Add rules to /etc/sysctl.d/99-CIS.conf
+    lineinfile:
+     path: /etc/sysctl.d/99-CIS.conf
+     line: "{{ item }}"
+    with_items:
+    - net.ipv4.ip_forward=0
+    - net.ipv4.conf.all.send_redirects=0
+    - net.ipv4.conf.default.send_redirects=0
+    - net.ipv4.conf.all.accept_source_route=0
+    - net.ipv4.conf.default.accept_source_route=0
+    - net.ipv4.conf.all.accept_redirects=0
+    - net.ipv4.conf.default.accept_redirects=0
+    - net.ipv4.conf.all.secure_redirects=0
+    - net.ipv4.conf.default.secure_redirects=0
+    - net.ipv4.conf.all.log_martians=1
+    - net.ipv4.conf.default.log_martians=1
+    - net.ipv4.route.flush=1
+    - net.ipv4.icmp_echo_ignore_broadcasts=1
+    - net.ipv4.icmp_ignore_bogus_error_responses=1
+    - net.ipv4.icmp_echo_bold_ignore_broadcasts=1
+    - net.ipv4.conf.all.rp_filter=1
+    - net.ipv4.conf.default.rp_filter=1
+    - net.ipv4.tcp_syncookies=1
+    - net.ipv6.conf.all.accept_ra=0
+    - net.ipv6.conf.default.accept_ra=0
+    - net.ipv6.conf.all.accept_redirects=0
+    - net.ipv6.conf.default.accept_redirects=0
+    - net.ipv6.conf.all.disable_ipv6=1
+    - kernel.randomize_va_space = 2
+    - fs.suid_dumpable=0
+
+  - name: Add rules to /etc/sysconfig/network
+    lineinfile:
+     path: /etc/sysconfig/network
+     line: "{{ item }}"
+    with_items:
+    - NETWORKING_IPV6=no
+    - IPV6INIT=no
+
+  - name: Add /etc/modprobe.d/ipv6.conf file
+    file:
+      path: /etc/modprobe.d/ipv6.conf
+      state: touch
+
+  - name: Add rules to /etc/modprobe.d/ipv6.conf
+    lineinfile:
+     path: /etc/modprobe.d/ipv6.conf
+     line: 'options ipv6 disable=1'
+  
+  - name: Disabling wireless
+    command: nmcli radio all off
+
+  - name: install Cron and Anacron
+    yum:
+      name: cronie-anacron
+      state: latest
+
+  - name: Enable crond services
+    service:
+      name: crond
+      state: started
+      enabled: true
+
+  - name: Add /etc/cron.allow file
+    file:
+      path: /etc/cron.allow
+      state: touch
+
+  - name: Give insecure permissions to an existing file
+    file: path={{ item }} owner=root group=root mode=0600
+    with_items:
+      - /etc/anacrontab
+      - /etc/cron.allow
+      - /etc/cron.daily      
+      - /etc/cron.hourly
+      - /etc/cron.weekly
+      - /etc/cron.monthly
+      - /etc/crontab                  
+    
+  - name: Give insecure permissions to an existing file
+    file:
+      path: /etc/cron.d              
+      owner: root
+      group: root
+      mode: '700'
+  
+  - name: copy of standart /etc/ssh/sshd_config
+    command: cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak
+
+  - name: Changing /etc/ssh/sshd_config Protocol 2
+    lineinfile:
+     path: /etc/ssh/sshd_config
+     line: 'Protocol 2'
+     state: present
+
+  - name: Changing /etc/ssh/sshd_config Port 6465
+    lineinfile:
+     path: /etc/ssh/sshd_config
+     regexp: '#Port 22'
+     line: 'Port 6465'
+     state: present
+
+  - name: Changing /etc/ssh/sshd_config LogLevel INFO
+    lineinfile:
+     path: /etc/ssh/sshd_config
+     regexp: '#LogLevel INFO'
+     line: 'LogLevel INFO'
+     state: present
+
+  - name: Changing /etc/ssh/sshd_config X11Forwarding no
+    lineinfile:
+     path: /etc/ssh/sshd_config
+     regexp: 'X11Forwarding yes'
+     line: 'X11Forwarding no'
+     state: present
+
+  - name: Changing /etc/ssh/sshd_config MaxAuthTries 3
+    lineinfile:
+     path: /etc/ssh/sshd_config
+     regexp: '#MaxAuthTries 6'
+     line: 'MaxAuthTries 3'
+     state: present
+
+  - name: Changing /etc/ssh/sshd_config IgnoreRhosts yes
+    lineinfile:
+     path: /etc/ssh/sshd_config
+     regexp: '#IgnoreRhosts yes'
+     line: 'IgnoreRhosts yes'
+     state: present
+
+  - name: Changing /etc/ssh/sshd_config HostbasedAuthentication no
+    lineinfile:
+     path: /etc/ssh/sshd_config
+     regexp: '#HostbasedAuthentication no'
+     line: 'HostbasedAuthentication no'
+     state: present
+
+  - name: Changing /etc/ssh/sshd_config PermitRootLogin no
+    lineinfile:
+     path: /etc/ssh/sshd_config
+     regexp: 'PermitRootLogin yes'
+     line: 'PermitRootLogin no'
+     state: present
+
+  - name: Changing /etc/ssh/sshd_config PermitUserEnvironment no
+    lineinfile:
+     path: /etc/ssh/sshd_config
+     regexp: '#PermitUserEnvironment no'
+     line: 'PermitUserEnvironment no'
+     state: present
+
+  - name: Changing /etc/ssh/sshd_config PermitEmptyPasswords no
+    lineinfile:
+     path: /etc/ssh/sshd_config
+     regexp: '#PermitEmptyPasswords no'
+     line: 'PermitEmptyPasswords no'
+     state: present
+
+  - name: Changing /etc/ssh/sshd_config ClientAliveInterval 300
+    lineinfile:
+     path: /etc/ssh/sshd_config
+     regexp: '#ClientAliveInterval 0'
+     line: 'ClientAliveInterval 300'
+     state: present
+
+  - name: Changing /etc/ssh/sshd_config ClientAliveCountMax 0
+    lineinfile:
+     path: /etc/ssh/sshd_config
+     regexp: '#ClientAliveCountMax 3'
+     line: 'ClientAliveCountMax 0'
+     state: present
+
+  - name: Changing /etc/ssh/sshd_config AllowGroups ansible
+    lineinfile:
+     path: /etc/ssh/sshd_config
+     line: 'AllowGroups ansible'
+     state: present
+
+  - name: Changing /etc/ssh/sshd_config MaxStartups 10:30:60
+    lineinfile:
+     path: /etc/ssh/sshd_config
+     regexp: '#MaxStartups 10:30:100'
+     line: 'MaxStartups 10:30:60'
+     state: present
+
+  - name: Changing /etc/ssh/sshd_config AllowTcpForwarding no
+    lineinfile:
+     path: /etc/ssh/sshd_config
+     regexp: '#AllowTcpForwarding no'
+     line: 'AllowTcpForwarding no'
+     state: present
+
+  - name: Changing /etc/ssh/sshd_config LoginGraceTime 1m
+    lineinfile:
+     path: /etc/ssh/sshd_config
+     regexp: '#LoginGraceTime 2m'
+     line: 'LoginGraceTime 1m'
+     state: present
+
+  - firewalld:
+      port: 6465/tcp
+      permanent: true
+      state: enabled
+      zone: public
+
+  - name: reload service firewalld
+    systemd:
+      name: firewalld
+      state: reloaded
+
+  - name: Restarting sshd after changes
+    systemd:
+      name: sshd
+      state: restarted
+  
+  - name: Ansible replace umask string
+    replace:
+      path: /etc/profile
+      regexp: 'umask 022'
+      replace: "umask 027"
+
+  - name: Ansible replace umask string
+    replace:
+      path: /etc/bashrc
+      regexp: 'umask 022'
+      replace: "umask 027"
+
+  - name: Changing /etc/login.defs
+    lineinfile:
+     path: /etc/login.defs
+     regexp: 'PASS_MAX_DAYS 99999'
+     line: 'PASS_MAX_DAYS 360'
+     state: present
+
+  - name: Add /etc/profile.d/autologout.sh file
+    file:
+      path: /etc/profile.d/autologout.sh
+      state: touch
+
+  - name: Add rules to 5 minute logout from shell
+    lineinfile:
+     path: /etc/profile.d/autologout.sh
+     line: "{{ item }}"
+    with_items:
+    - TMOUT=300
+    - readonly TMOUT
+    - export TMOUT
+
+  - name: Chown and Chmod
+    shell: 
+      cmd: |
+        chmod 644 /etc/passwd
+        chmod 000 /etc/shadow
+        chmod 000 /etc/gshadow
+        chmod 644 /etc/group
+        chmod 600 /boot/grub2/grub.cfg
+        chmod 600 /etc/rsyslog.conf
+        chown root:root /etc/passwd
+        chown root:root /etc/shadow
+        chown root:root /etc/gshadow
+        chown root:root /etc/group
+    ignore_errors: yes
