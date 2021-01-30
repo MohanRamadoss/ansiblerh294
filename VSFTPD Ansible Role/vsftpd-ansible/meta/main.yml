@@ -1,7 +1,6 @@
 galaxy_info:
-  author: Aryan Srivastava
+  author: Mohan Ramadoss
   description: VSFTPD deployment using Ansible on CentOS 7.
-  company: Network Nuts
 
   # If the issue tracker for your role is not on github, uncomment the
   # next line and provide a value
