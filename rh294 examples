@@ -214,7 +214,7 @@ pwhash: p@ssw0rd1234
     - name: Creating user from secret.yml
       user:
         name: "{{ username }}"
-        password: "{{ pwhash }}"
+        password: "{{ pwhash | password_hash('sha512', 'A512') }}"
 
 
 		
