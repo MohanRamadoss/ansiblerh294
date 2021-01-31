@@ -229,6 +229,30 @@ chmod 0600 vault-pass
 ansible-playbook --vault-password-file=vault-pass create_users.yml		
 
 
+ansible-vault edit  redhat
+Vault password: 
+admin_group: wheel
+default_user_password: Password1
+
+
+$ vim create-users.yml
+---                               
+- name: Create New Users          
+  hosts: all                      
+  gather_facts: false             
+  tasks:                          
+    - name: Create Users Task 
+      user:                       
+        name: bob                 
+        state: present            
+        password: "{{ default_user_password | password_hash('sha512', 'A512') }}"
+        shell: /bin/bash          
+        groups: "{{ admin_group }}"                                                                                                     
+        append: true              
+...
+
+
+
 
 ##################Managing Facts###################################
 
