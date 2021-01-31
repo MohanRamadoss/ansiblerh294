@@ -2,7 +2,7 @@
 - name: configure /etc/motd
   hosts: all
   vars:
-    company_name: NetworkNuts
+    company_name: ibm
   tasks:
     - name: copy motd.j2 to /etc/motd
       template:
