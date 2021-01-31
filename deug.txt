@@ -1,3 +1,15 @@
+- name: variables in playbook
+  hosts: localhost
+  connection: local
+  vars:
+     abc: 'set-via-vars-in-playbook'
+     hello: "world"
+     a: 15
+  tasks:
+    - debug:
+         var: abc,hello,a
+
+
 - name: print some facts                   
   hosts: all                          
   connection: local                        
@@ -19,3 +31,28 @@
      register: out
    - debug: var=out.stdout
      when: ansible_distribution == 'Redhat'
+
+
+
+
+- name: print some facts                   
+  hosts: localhost                         
+  connection: local                        
+  gather_facts: True                       
+  tasks:                                   
+   - debug: var=ansible_distribution       
+   - debug: var=ansible_architecture       
+   - debug: var=ansible_default_ipv4.address
+   - command: cat /etc/os-release
+     register: out
+   - debug: var=out.stdout
+     when: ansible_distribution == 'SLES'
+   - command: echo "hello"
+     register: out
+   - debug: var=out.stdout
+     when: ansible_distribution == 'Redhat'
+     
+     
+     
+     
+     
